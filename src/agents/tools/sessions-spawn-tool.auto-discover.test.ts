@@ -96,7 +96,7 @@ describe("sessions_spawn autoDiscoverAgents", () => {
       agentId: "researcher",
     });
 
-    const parsed = JSON.parse(result as string);
+    const parsed = (result as { details: Record<string, unknown> }).details;
     expect(parsed.status).toBe("accepted");
   });
 
@@ -126,7 +126,7 @@ describe("sessions_spawn autoDiscoverAgents", () => {
       agentId: "researcher",
     });
 
-    const parsed = JSON.parse(result as string);
+    const parsed = (result as { details: Record<string, unknown> }).details;
     expect(parsed.status).toBe("forbidden");
   });
 });

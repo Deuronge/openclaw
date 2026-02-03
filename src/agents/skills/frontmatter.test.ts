@@ -67,6 +67,97 @@ describe("resolveOpenClawMetadata", () => {
   });
 });
 
+describe("install spec sha256 parsing", () => {
+  it("parses valid 64-char hex sha256", () => {
+    const metadata = resolveOpenClawMetadata({
+      metadata: JSON.stringify({
+        openclaw: {
+          install: [
+            {
+              kind: "download",
+              url: "https://example.com/tool.tar.gz",
+              sha256: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+            },
+          ],
+        },
+      }),
+    });
+    expect(metadata?.install?.[0]?.sha256).toBe(
+      "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+    );
+  });
+
+  it("ignores invalid sha256 format (too short)", () => {
+    const metadata = resolveOpenClawMetadata({
+      metadata: JSON.stringify({
+        openclaw: {
+          install: [
+            {
+              kind: "download",
+              url: "https://example.com/tool.tar.gz",
+              sha256: "abc123", // too short
+            },
+          ],
+        },
+      }),
+    });
+    expect(metadata?.install?.[0]?.sha256).toBeUndefined();
+  });
+
+  it("ignores invalid sha256 format (non-hex chars)", () => {
+    const metadata = resolveOpenClawMetadata({
+      metadata: JSON.stringify({
+        openclaw: {
+          install: [
+            {
+              kind: "download",
+              url: "https://example.com/tool.tar.gz",
+              sha256: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+            },
+          ],
+        },
+      }),
+    });
+    expect(metadata?.install?.[0]?.sha256).toBeUndefined();
+  });
+
+  it("normalizes sha256 to lowercase", () => {
+    const metadata = resolveOpenClawMetadata({
+      metadata: JSON.stringify({
+        openclaw: {
+          install: [
+            {
+              kind: "download",
+              url: "https://example.com/tool.tar.gz",
+              sha256: "A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4E5F6A1B2",
+            },
+          ],
+        },
+      }),
+    });
+    expect(metadata?.install?.[0]?.sha256).toBe(
+      "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+    );
+  });
+
+  it("loads skill without sha256 (backward compatibility)", () => {
+    const metadata = resolveOpenClawMetadata({
+      metadata: JSON.stringify({
+        openclaw: {
+          install: [
+            {
+              kind: "download",
+              url: "https://example.com/tool.tar.gz",
+            },
+          ],
+        },
+      }),
+    });
+    expect(metadata?.install?.[0]?.url).toBe("https://example.com/tool.tar.gz");
+    expect(metadata?.install?.[0]?.sha256).toBeUndefined();
+  });
+});
+
 describe("resolveSkillKey", () => {
   it("returns metadata skillKey when available", () => {
     const skill = { name: "my-skill" } as never;

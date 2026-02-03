@@ -59,6 +59,15 @@ function parseInstallSpec(input: unknown): SkillInstallSpec | undefined {
   if (typeof raw.stripComponents === "number") spec.stripComponents = raw.stripComponents;
   if (typeof raw.targetDir === "string") spec.targetDir = raw.targetDir;
 
+  // SHA-256 hash verification (64-char hex string)
+  if (typeof raw.sha256 === "string") {
+    const sha256 = raw.sha256.trim().toLowerCase();
+    if (/^[a-f0-9]{64}$/.test(sha256)) {
+      spec.sha256 = sha256;
+    }
+    // Invalid format silently ignored (skill still loads, just no verification)
+  }
+
   return spec;
 }
 

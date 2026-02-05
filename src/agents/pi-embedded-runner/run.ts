@@ -17,7 +17,12 @@ import {
   resolveContextWindowInfo,
 } from "../context-window-guard.js";
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../defaults.js";
-import { FailoverError, resolveFailoverStatus } from "../failover-error.js";
+import {
+  FailoverError,
+  parseRetryAfter,
+  parseRetryAfterFromMessage,
+  resolveFailoverStatus,
+} from "../failover-error.js";
 import {
   ensureAuthProfileStore,
   getApiKeyForModel,
@@ -292,6 +297,12 @@ export async function runEmbeddedPiAgent(
         }
       }
 
+      // Same-provider retry for rate limit (after failover exhausted)
+      const MAX_RATE_LIMIT_RETRIES = 2;
+      const DEFAULT_RATE_LIMIT_DELAY_S = 60;
+      const MAX_RATE_LIMIT_DELAY_S = 120;
+      let rateLimitRetryCount = 0;
+
       let overflowCompactionAttempted = false;
       try {
         while (true) {
@@ -486,6 +497,24 @@ export async function runEmbeddedPiAgent(
             ) {
               continue;
             }
+            // Same-provider retry for rate limit when failover is unavailable
+            if (
+              promptFailoverReason === "rate_limit" &&
+              rateLimitRetryCount < MAX_RATE_LIMIT_RETRIES
+            ) {
+              rateLimitRetryCount++;
+              const parsedDelay =
+                parseRetryAfter(promptError) ?? parseRetryAfterFromMessage(errorText);
+              const delaySeconds = Math.min(
+                parsedDelay ?? DEFAULT_RATE_LIMIT_DELAY_S,
+                MAX_RATE_LIMIT_DELAY_S,
+              );
+              log.warn(
+                `rate limit hit for ${provider}/${modelId}; retrying same provider in ${delaySeconds}s (attempt ${rateLimitRetryCount}/${MAX_RATE_LIMIT_RETRIES})`,
+              );
+              await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+              continue;
+            }
             const fallbackThinking = pickFallbackThinkingLevel({
               message: errorText,
               attempted: attemptedThinking,
@@ -579,6 +608,24 @@ export async function runEmbeddedPiAgent(
 
             const rotated = await advanceAuthProfile();
             if (rotated) continue;
+
+            // Same-provider retry for rate limit when rotation/failover is unavailable
+            if (
+              (rateLimitFailure || assistantFailoverReason === "rate_limit") &&
+              rateLimitRetryCount < MAX_RATE_LIMIT_RETRIES
+            ) {
+              rateLimitRetryCount++;
+              const parsedDelay = parseRetryAfterFromMessage(lastAssistant?.errorMessage ?? "");
+              const delaySeconds = Math.min(
+                parsedDelay ?? DEFAULT_RATE_LIMIT_DELAY_S,
+                MAX_RATE_LIMIT_DELAY_S,
+              );
+              log.warn(
+                `rate limit hit for ${provider}/${modelId}; retrying same provider in ${delaySeconds}s (attempt ${rateLimitRetryCount}/${MAX_RATE_LIMIT_RETRIES})`,
+              );
+              await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+              continue;
+            }
 
             if (fallbackConfigured) {
               // Prefer formatted error message (user-friendly) over raw errorMessage

@@ -136,14 +136,29 @@ export function resolveAgentModelFallbacksOverride(
 export function resolveAgentWorkspaceDir(cfg: OpenClawConfig, agentId: string) {
   const id = normalizeAgentId(agentId);
   const configured = resolveAgentConfig(cfg, id)?.workspace?.trim();
-  if (configured) return resolveUserPath(configured);
+  if (configured) {
+    const resolved = resolveUserPath(configured);
+    console.log(`[debug:workspace] agentId=${agentId} id=${id} source=configured path=${resolved}`);
+    return resolved;
+  }
   const defaultAgentId = resolveDefaultAgentId(cfg);
   if (id === defaultAgentId) {
     const fallback = cfg.agents?.defaults?.workspace?.trim();
-    if (fallback) return resolveUserPath(fallback);
+    if (fallback) {
+      const resolved = resolveUserPath(fallback);
+      console.log(
+        `[debug:workspace] agentId=${agentId} id=${id} source=default-fallback path=${resolved}`,
+      );
+      return resolved;
+    }
+    console.log(
+      `[debug:workspace] agentId=${agentId} id=${id} source=default path=${DEFAULT_AGENT_WORKSPACE_DIR}`,
+    );
     return DEFAULT_AGENT_WORKSPACE_DIR;
   }
-  return path.join(os.homedir(), ".openclaw", `workspace-${id}`);
+  const result = path.join(os.homedir(), ".openclaw", `workspace-${id}`);
+  console.log(`[debug:workspace] agentId=${agentId} id=${id} source=non-default path=${result}`);
+  return result;
 }
 
 export function resolveAgentDir(cfg: OpenClawConfig, agentId: string) {

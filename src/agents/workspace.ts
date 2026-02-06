@@ -276,9 +276,6 @@ export async function loadWorkspaceBootstrapFiles(dir: string): Promise<Workspac
         missing: false,
       });
     } catch {
-      if (entry.name === DEFAULT_SOUL_FILENAME) {
-        console.log(`[debug:soul] dir=${resolvedDir} path=${entry.filePath} MISSING`);
-      }
       result.push({ name: entry.name, path: entry.filePath, missing: true });
     }
   }

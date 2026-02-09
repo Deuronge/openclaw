@@ -72,8 +72,11 @@ USER.md
 .serena/
 .claude/similar-index.json
 
+# Similar search index (generated)
+.claude/similar-index.json
+
 # Agent credentials and memory (NEVER COMMIT)
-memory/
+/memory/
 .agent/*.json
 !.agent/workflows/
 
@@ -83,3 +86,4 @@ share/inbox/
 share/outbox/
 share/artifacts/
 
+local/

@@ -4,6 +4,7 @@ import { callGateway } from "../../gateway/call.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
+import { isInternalMessageChannel } from "../../utils/message-channel.js";
 import { AGENT_LANE_NESTED } from "../lanes.js";
 import { readLatestAssistantReply, runAgentStep } from "./agent-step.js";
 import { resolveAnnounceTarget } from "./sessions-announce-target.js";
@@ -24,6 +25,7 @@ export async function runSessionsSendA2AFlow(params: {
   announceEnabled: boolean;
   requesterSessionKey?: string;
   requesterChannel?: GatewayMessageChannel;
+  requesterTo?: string;
   roundOneReply?: string;
   waitRunId?: string;
 }) {
@@ -49,6 +51,11 @@ export async function runSessionsSendA2AFlow(params: {
       }
     }
     if (!latestReply) {
+      log.warn("[a2a] no reply from target session — skipping announce", {
+        runId: runContextId,
+        targetSessionKey: params.targetSessionKey,
+        waitRunId: params.waitRunId,
+      });
       return;
     }
 
@@ -57,8 +64,18 @@ export async function runSessionsSendA2AFlow(params: {
       sessionKey: params.targetSessionKey,
       displayKey: params.displayKey,
       requesterSessionKey: params.requesterSessionKey,
+      requesterChannel: params.requesterChannel,
+      requesterTo: params.requesterTo,
     });
-    const targetChannel = announceTarget?.channel ?? "unknown";
+    const targetChannel = announceTarget?.channel;
+
+    // Resolve the originating channel for nested agent steps so the gateway
+    // agent handler records the correct channel in the session entry instead
+    // of defaulting to INTERNAL_MESSAGE_CHANNEL ("webchat").
+    const originChannel =
+      targetChannel && !isInternalMessageChannel(targetChannel)
+        ? targetChannel
+        : params.requesterChannel;
 
     // Helper to announce messages to the correct target channel with correct identity
     const tryAnnounce = async (message: string, sessionKey: string) => {
@@ -69,32 +86,47 @@ export async function runSessionsSendA2AFlow(params: {
         return;
       }
 
-      try {
-        // Determine WHO is speaking
-        const agentId = resolveAgentIdFromSessionKey(sessionKey);
+      if (!announceTarget?.channel || !announceTarget?.to) {
+        log.warn("[a2a] no announce target resolved — skipping announce", {
+          sessionKey,
+          targetSessionKey: params.targetSessionKey,
+          hasChannel: !!announceTarget?.channel,
+          hasTo: !!announceTarget?.to,
+        });
+        return;
+      }
+      const agentId = resolveAgentIdFromSessionKey(sessionKey);
+      const sendAnnounce = () =>
+        callGateway({
+          method: "send",
+          params: {
+            to: announceTarget.to,
+            message: message.trim(),
+            channel: announceTarget.channel,
+            accountId: announceTarget.accountId,
+            idempotencyKey: crypto.randomUUID(),
+          },
+          timeoutMs: 10_000,
+        });
 
-        // We use the same announceTarget (the group chat) but specify the agentId
-        // so the gateway sends it as the correct bot.
-        if (announceTarget) {
-          log.info(
-            `[a2a] announcing for ${agentId} (${sessionKey}): target=${announceTarget.channel}/${announceTarget.to}`,
-          );
-          await callGateway({
-            method: "send",
-            params: {
-              to: announceTarget.to,
-              message: message.trim(),
-              channel: announceTarget.channel,
-              // Let the gateway resolve the connection based on agentId + channel
-              accountId: announceTarget.accountId,
-              agentId: agentId, // Crucial: Send as the correct agent
-              idempotencyKey: crypto.randomUUID(),
-            },
-            timeoutMs: 10_000,
+      try {
+        log.info(
+          `[a2a] announcing for ${agentId} (${sessionKey}): target=${announceTarget.channel}/${announceTarget.to}`,
+        );
+        await sendAnnounce();
+      } catch (err) {
+        log.warn(`[a2a] announce failed for ${agentId}, retrying once`, {
+          error: formatErrorMessage(err),
+        });
+        try {
+          await sendAnnounce();
+        } catch (retryErr) {
+          log.error(`[a2a] announce retry failed for ${agentId} (${sessionKey})`, {
+            error: formatErrorMessage(retryErr),
+            channel: announceTarget.channel,
+            to: announceTarget.to,
           });
         }
-      } catch (err) {
-        log.warn(`[a2a] announce failed for ${sessionKey}`, { error: formatErrorMessage(err) });
       }
     };
 
@@ -131,6 +163,7 @@ export async function runSessionsSendA2AFlow(params: {
           extraSystemPrompt: replyPrompt,
           timeoutMs: params.announceTimeoutMs,
           lane: AGENT_LANE_NESTED,
+          channel: originChannel,
         });
         if (!replyText || isReplySkip(replyText)) {
           break;
